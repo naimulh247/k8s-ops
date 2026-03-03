@@ -8,4 +8,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: ghost-ops
 repo: example.com
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: example.com
+  group: blog
+  kind: Ghost
+  path: example.com/api/v1
+  version: v1
 version: "3"
