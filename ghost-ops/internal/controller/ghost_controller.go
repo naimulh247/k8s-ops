@@ -49,6 +49,17 @@ type GhostReconciler struct {
 func (r *GhostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling Ghost")
+
+	ghost := &blogv1.Ghost{}
+	// get the Ghost resource with the name and namespace specified in the request
+	if err := r.Get(ctx, req.NamespacedName, ghost); err != nil {
+
+		log.Error(err, "failed to get ghost")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+
+	}
+
+	log.Info("Reconiling Ghost result:", "imageTag", ghost.Spec.ImageTag, "namespace", ghost.ObjectMeta.Namespace)
 	log.Info("Reconciling complete")
 
 	// TODO(user): your logic here
