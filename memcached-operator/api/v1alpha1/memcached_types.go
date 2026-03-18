@@ -31,8 +31,10 @@ type MemcachedSpec struct {
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
 	// configure the number of instances in the Memcached deployment
-	// +kubebuilder:validation:Minimum=0
-	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:validation:ExclusiveMaximum=false
+	// +optional
 	Size *int32 `json:"size,omitempty"`
 }
 
