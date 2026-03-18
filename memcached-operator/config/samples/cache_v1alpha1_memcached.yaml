@@ -7,3 +7,5 @@ metadata:
   name: memcached-sample
 spec:
   # TODO(user): Add fields here
+  # number of Pods/ Instances
+  size: 1
