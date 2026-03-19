@@ -21,9 +21,9 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/scale/scheme/appsv1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,12 +55,12 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	logger := logf.FromContext(ctx)
 
 	// get the Memcached instance
-	// check if the cr for the Memcached Kind is appiled on the cluster, 
+	// check if the cr for the Memcached Kind is appiled on the cluster,
 	// if not return nil and stop the reconciliation
 	memchached := &cachev1alpha1.Memcached{}
 	err := r.Get(ctx, req.NamespacedName, memchached)
 	if err != nil {
-		// if the customer resource is not found, it means it hasnt been created or deleted 
+		// if the customer resource is not found, it means it hasnt been created or deleted
 		// so we can ignore the error and stop the reconciliation
 		if apierrors.IsNotFound(err) {
 			logger.Info("Memcached resource not found. Ignoring since the object might be deleted")
@@ -73,6 +73,18 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
+	// if the status conditions is empty, it means this is the first time we are reconciling this object, so we can set the initial status condition to unknown and update the status on the api server
+	if len(memchached.Status.Conditions) == 0 {
+		// modify the local struct in memory
+		meta.SetStatusCondition(&memchached.Status.Conditions, metav1.Condition{Type: "Availble", Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reocniliation"})
+		// update the status on the api server
+		if err = r.Status().Update(ctx, memchached); err != nil {
+			logger.Error(err, "Failed to update Memcached status")
+			return ctrl.Result{}, err
+		}
+	}
+
+	
 
 	return ctrl.Result{}, nil
 }
