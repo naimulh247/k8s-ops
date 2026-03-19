@@ -84,8 +84,14 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	
+	// refresh the memecached cr after the status update,
+	// this will prevent modified object error while we handle the cr
+	if err = r.Get(ctx, req.NamespacedName, memchached); err != nil {
+		logger.Error(err, "Failed to re-fetch memcached")
+		return ctrl.Result{}, err
+	}
 
+	
 	return ctrl.Result{}, nil
 }
 
