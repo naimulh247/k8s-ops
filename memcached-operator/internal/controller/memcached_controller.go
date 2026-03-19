@@ -19,7 +19,11 @@ package controller
 import (
 	"context"
 
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/scale/scheme/appsv1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -47,9 +51,28 @@ type MemcachedReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	// get the logger from the context
+	logger := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// get the Memcached instance
+	// check if the cr for the Memcached Kind is appiled on the cluster, 
+	// if not return nil and stop the reconciliation
+	memchached := &cachev1alpha1.Memcached{}
+	err := r.Get(ctx, req.NamespacedName, memchached)
+	if err != nil {
+		// if the customer resource is not found, it means it hasnt been created or deleted 
+		// so we can ignore the error and stop the reconciliation
+		if apierrors.IsNotFound(err) {
+			logger.Info("Memcached resource not found. Ignoring since the object might be deleted")
+			return ctrl.Result{}, nil
+		}
+
+		// for any other error, reading the object, requeue the request to try again
+		// it knows to requeue the request because of the error, so we can return an empty result and the error
+		logger.Error(err, "Failed to get Memcached")
+		return ctrl.Result{}, err
+	}
+
 
 	return ctrl.Result{}, nil
 }
