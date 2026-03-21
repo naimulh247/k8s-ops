@@ -22,6 +22,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -194,9 +195,65 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-// genenric function for now
+// deploymentForMemcached returns a memcached Deployment object
 func (r *MemcachedReconciler) deploymentForMemcached(memchached *cachev1alpha1.Memcached) (*appsv1.Deployment, error) {
-	panic("unimplemented")
+	// memcahced image
+	image := "memcached:latest"
+
+	// define the deployment object
+	dep := &appsv1.Deployment{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      memcached.Name,
+            Namespace: memcached.Namespace,
+        },
+        Spec: appsv1.DeploymentSpec{
+            Replicas: memcached.Spec.Size,
+            Selector: &metav1.LabelSelector{
+                MatchLabels: map[string]string{"app.kubernetes.io/name": "project"},
+            },
+            Template: corev1.PodTemplateSpec{
+                ObjectMeta: metav1.ObjectMeta{
+                    Labels: map[string]string{"app.kubernetes.io/name": "project"},
+                },
+                Spec: corev1.PodSpec{
+                    SecurityContext: &corev1.PodSecurityContext{
+                        RunAsNonRoot: ptr.To(true),
+                        SeccompProfile: &corev1.SeccompProfile{
+                            Type: corev1.SeccompProfileTypeRuntimeDefault,
+                        },
+                    },
+                    Containers: []corev1.Container{{
+                        Image:           image,
+                        Name:            "memcached",
+                        ImagePullPolicy: corev1.PullIfNotPresent,
+                        SecurityContext: &corev1.SecurityContext{
+                            RunAsNonRoot:             ptr.To(true),
+                            RunAsUser:                ptr.To(int64(1001)),
+                            AllowPrivilegeEscalation: ptr.To(false),
+                            Capabilities: &corev1.Capabilities{
+                                Drop: []corev1.Capability{
+                                    "ALL",
+                                },
+                            },
+                        },
+                        Ports: []corev1.ContainerPort{{
+                            ContainerPort: 11211,
+                            Name:          "memcached",
+                        }},
+                        Command: []string{"memcached", "--memory-limit=64", "-o", "modern", "-v"},
+                    }},
+                },
+            },
+        },
+    }
+
+	// set the ower reference for the deployment to be the memcached cr, this will help with garbage collection and also with watching the deployment for changes
+	if err := ctrl.SetControllerReference(memchached, dep, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return dep, nil
+
 }
 
 // SetupWithManager sets up the controller with the Manager.
