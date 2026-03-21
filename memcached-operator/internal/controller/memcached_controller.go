@@ -189,7 +189,7 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		Type: "Availble",
 		Status: metav1.ConditionTrue,
 		Reason: "Reconciling",
-		Message: fmt.Sprintf("Deploymet of custom resource (%s) with %d replicas created successfully", memchached.Name, desiredReplicas)
+		Message: fmt.Sprintf("Deploymet of custom resource (%s) with %d replicas created successfully", memchached.Name, desiredReplicas),
 	})
 	if err := r.Status().Update(ctx, memchached); err != nil {
 		logger.Error(err, "Failed to update Memcached status")
@@ -206,11 +206,11 @@ func (r *MemcachedReconciler) deploymentForMemcached(memchached *cachev1alpha1.M
 	// define the deployment object
 	dep := &appsv1.Deployment{
         ObjectMeta: metav1.ObjectMeta{
-            Name:      memcached.Name,
-            Namespace: memcached.Namespace,
+            Name:      memchached.Name,
+            Namespace: memchached.Namespace,
         },
         Spec: appsv1.DeploymentSpec{
-            Replicas: memcached.Spec.Size,
+            Replicas: memchached.Spec.Size,
             Selector: &metav1.LabelSelector{
                 MatchLabels: map[string]string{"app.kubernetes.io/name": "project"},
             },
@@ -268,6 +268,6 @@ func (r *MemcachedReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// whatch the deployment managed by the memcached controller. 
 		// if something changes owned by the memcached controler, it will trigger 
 		// reconiliation 
-		Owns(&appsv1.Deployment{})
+		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }
