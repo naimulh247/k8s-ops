@@ -259,7 +259,12 @@ func (r *MemcachedReconciler) deploymentForMemcached(memchached *cachev1alpha1.M
 // SetupWithManager sets up the controller with the Manager.
 func (r *MemcachedReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		// watch the memcached cr for changes and reconcile when it is created, updated or deleted
 		For(&cachev1alpha1.Memcached{}).
 		Named("memcached").
+		// whatch the deployment managed by the memcached controller. 
+		// if something changes owned by the memcached controler, it will trigger 
+		// reconiliation 
+		Owns(&appsv1.Deployment{})
 		Complete(r)
 }
