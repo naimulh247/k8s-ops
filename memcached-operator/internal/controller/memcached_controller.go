@@ -18,12 +18,17 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -76,7 +81,7 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// if the status conditions is empty, it means this is the first time we are reconciling this object, so we can set the initial status condition to unknown and update the status on the api server
 	if len(memchached.Status.Conditions) == 0 {
 		// modify the local struct in memory
-		meta.SetStatusCondition(&memchached.Status.Conditions, metav1.Condition{Type: "Availble", Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reocniliation"})
+		meta.SetStatusCondition(&memchached.Status.Conditions, metav1.Condition{Type: "Available", Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reocniliation"})
 		// update the status on the api server
 		if err = r.Status().Update(ctx, memchached); err != nil {
 			logger.Error(err, "Failed to update Memcached status")
@@ -91,8 +96,107 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	
+	// check if the deployment for memcached exists, if not we will create a new one
+	foundDeployment := &appsv1.Deployment{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: memchached.Namespace, Name: memchached.Name}, foundDeployment)
+	if err != nil && apierrors.IsNotFound(err) {
+		// define a new deployment
+		dep, err := r.deploymentForMemcached(memchached) // this function is not implemented yet, we will implement it later
+		if err != nil {
+			logger.Error(err, "Failed to define new deployment for Memcached")
+
+			// update the status
+			meta.SetStatusCondition(&memchached.Status.Conditions,
+				metav1.Condition{Type: "Available",
+					Status:  metav1.ConditionFalse,
+					Reason:  "Reconciling",
+					Message: fmt.Sprintf("Failed to create deployment for custom resource (%s): (%s)", memchached.Name, err)})
+			
+			if err := r.Status().Update(ctx, memchached); err != nil {
+				logger.Error(err, "Failed to update Memcached status")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Creating a new deployment",
+			"Deployment.Namespace", dep.Namespace, "Deployemnt.Name", dep.Name)
+		if err = r.Create(ctx, dep); err != nil {
+			logger.Error(err, "Failed to create a new deployment", "Deployment.Namespace", dep.Namespace, "Deplyment.Name", dep.Name)
+			return ctrl.Result{}, err
+		}
+
+		// at this point deployment is created succesfully. we requeue the reconciliation to chekc the state and move to next step
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	} else if err != nil {
+		logger.Error(err, "Failed to get Deployment")
+		// return the error for reconcilation to re-try
+		return ctrl.Result{}, err
+	}
+
+	// at this point we know the deployment exists, 
+	// we can check the size in the cr/ spec and compare it with the actual size
+	var desiredReplicas int32 = 0
+	if memchached.Spec.Size != nil {
+		desiredReplicas = *memchached.Spec.Size
+	}
+
+	// the crd api defines that the memcached size field (MemcachedSpec.Size)
+	// to set the number of deployment instances to the desired size / state on the cluster
+	// check if the CR size is defined and if it is different from the actual deployment size, 
+	// then update the deployment with the desired size
+
+	if foundDeployment.Spec.Replicas == nil || *foundDeployment.Spec.Replicas != desiredReplicas {
+		foundDeployment.Spec.Replicas = ptr.To(desiredReplicas) // this is a helper function from k8s utils to get a pointer to the desired replicas value
+		if err = r.Update(ctx, foundDeployment); err != nil {
+			logger.Error(err, "Failed to update deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
+			
+			// re-fetch the memcached cr to get the lates version of the object
+			if err := r.Get(ctx, req.NamespacedName, memchached); err != nil {
+				logger.Error(err, "Failed to re-fetch memcached")
+				return ctrl.Result{}, err
+			}
+
+			// update the status 
+			meta.SetStatusCondition(&memchached.Status.Conditions, 
+				metav1.Condition{
+					Type: "Available",
+					Status: metav1.ConditionFalse,
+					Reason: "Resizing",
+					Message: fmt.Sprintf("Failed to update the size for cusom resource (%s): (%s)", memchached.Name, err),
+				})
+			
+			if err := r.Status().Update(ctx, memchached); err != nil {
+				logger.Error(err, "Failed to update Memcached status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+
+		}
+
+		// at this pint we know the deployment is updated with the desired size, 
+		// we should requie the reconciliation to have the latest state of the resouece before updating
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+
+	}
+	// this is to update the status or reocnciling of custom resource with n replicas
+	meta.SetStatusCondition(&memchached.Status.Conditions, metav1.Condition{
+		Type: "Availble",
+		Status: metav1.ConditionTrue,
+		Reason: "Reconciling",
+		Message: fmt.Sprintf("Deploymet of custom resource (%s) with %d replicas created successfully", memchached.Name, desiredReplicas)
+	})
+	if err := r.Status().Update(ctx, memchached); err != nil {
+		logger.Error(err, "Failed to update Memcached status")
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
+}
+
+// genenric function for now
+func (r *MemcachedReconciler) deploymentForMemcached(memchached *cachev1alpha1.Memcached) (*appsv1.Deployment, error) {
+	panic("unimplemented")
 }
 
 // SetupWithManager sets up the controller with the Manager.
