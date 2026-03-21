@@ -115,7 +115,7 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					Status:  metav1.ConditionFalse,
 					Reason:  "Reconciling",
 					Message: fmt.Sprintf("Failed to create deployment for custom resource (%s): (%s)", memchached.Name, err)})
-			
+
 			if err := r.Status().Update(ctx, memchached); err != nil {
 				logger.Error(err, "Failed to update Memcached status")
 				return ctrl.Result{}, err
@@ -138,7 +138,7 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// at this point we know the deployment exists, 
+	// at this point we know the deployment exists,
 	// we can check the size in the cr/ spec and compare it with the actual size
 	var desiredReplicas int32 = 0
 	if memchached.Spec.Size != nil {
@@ -147,29 +147,29 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// the crd api defines that the memcached size field (MemcachedSpec.Size)
 	// to set the number of deployment instances to the desired size / state on the cluster
-	// check if the CR size is defined and if it is different from the actual deployment size, 
+	// check if the CR size is defined and if it is different from the actual deployment size,
 	// then update the deployment with the desired size
 
 	if foundDeployment.Spec.Replicas == nil || *foundDeployment.Spec.Replicas != desiredReplicas {
 		foundDeployment.Spec.Replicas = ptr.To(desiredReplicas) // this is a helper function from k8s utils to get a pointer to the desired replicas value
 		if err = r.Update(ctx, foundDeployment); err != nil {
 			logger.Error(err, "Failed to update deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
-			
+
 			// re-fetch the memcached cr to get the lates version of the object
 			if err := r.Get(ctx, req.NamespacedName, memchached); err != nil {
 				logger.Error(err, "Failed to re-fetch memcached")
 				return ctrl.Result{}, err
 			}
 
-			// update the status 
-			meta.SetStatusCondition(&memchached.Status.Conditions, 
+			// update the status
+			meta.SetStatusCondition(&memchached.Status.Conditions,
 				metav1.Condition{
-					Type: "Available",
-					Status: metav1.ConditionFalse,
-					Reason: "Resizing",
+					Type:    "Available",
+					Status:  metav1.ConditionFalse,
+					Reason:  "Resizing",
 					Message: fmt.Sprintf("Failed to update the size for cusom resource (%s): (%s)", memchached.Name, err),
 				})
-			
+
 			if err := r.Status().Update(ctx, memchached); err != nil {
 				logger.Error(err, "Failed to update Memcached status")
 				return ctrl.Result{}, err
@@ -179,16 +179,16 @@ func (r *MemcachedReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		}
 
-		// at this pint we know the deployment is updated with the desired size, 
+		// at this pint we know the deployment is updated with the desired size,
 		// we should requie the reconciliation to have the latest state of the resouece before updating
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 
 	}
 	// this is to update the status or reocnciling of custom resource with n replicas
 	meta.SetStatusCondition(&memchached.Status.Conditions, metav1.Condition{
-		Type: "Availble",
-		Status: metav1.ConditionTrue,
-		Reason: "Reconciling",
+		Type:    "Available",
+		Status:  metav1.ConditionTrue,
+		Reason:  "Reconciling",
 		Message: fmt.Sprintf("Deploymet of custom resource (%s) with %d replicas created successfully", memchached.Name, desiredReplicas),
 	})
 	if err := r.Status().Update(ctx, memchached); err != nil {
@@ -205,50 +205,50 @@ func (r *MemcachedReconciler) deploymentForMemcached(memchached *cachev1alpha1.M
 
 	// define the deployment object
 	dep := &appsv1.Deployment{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      memchached.Name,
-            Namespace: memchached.Namespace,
-        },
-        Spec: appsv1.DeploymentSpec{
-            Replicas: memchached.Spec.Size,
-            Selector: &metav1.LabelSelector{
-                MatchLabels: map[string]string{"app.kubernetes.io/name": "project"},
-            },
-            Template: corev1.PodTemplateSpec{
-                ObjectMeta: metav1.ObjectMeta{
-                    Labels: map[string]string{"app.kubernetes.io/name": "project"},
-                },
-                Spec: corev1.PodSpec{
-                    SecurityContext: &corev1.PodSecurityContext{
-                        RunAsNonRoot: ptr.To(true),
-                        SeccompProfile: &corev1.SeccompProfile{
-                            Type: corev1.SeccompProfileTypeRuntimeDefault,
-                        },
-                    },
-                    Containers: []corev1.Container{{
-                        Image:           image,
-                        Name:            "memcached",
-                        ImagePullPolicy: corev1.PullIfNotPresent,
-                        SecurityContext: &corev1.SecurityContext{
-                            RunAsNonRoot:             ptr.To(true),
-                            RunAsUser:                ptr.To(int64(1001)),
-                            AllowPrivilegeEscalation: ptr.To(false),
-                            Capabilities: &corev1.Capabilities{
-                                Drop: []corev1.Capability{
-                                    "ALL",
-                                },
-                            },
-                        },
-                        Ports: []corev1.ContainerPort{{
-                            ContainerPort: 11211,
-                            Name:          "memcached",
-                        }},
-                        Command: []string{"memcached", "--memory-limit=64", "-o", "modern", "-v"},
-                    }},
-                },
-            },
-        },
-    }
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      memchached.Name,
+			Namespace: memchached.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: memchached.Spec.Size,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app.kubernetes.io/name": "project"},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app.kubernetes.io/name": "project"},
+				},
+				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: ptr.To(true),
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
+						},
+					},
+					Containers: []corev1.Container{{
+						Image:           image,
+						Name:            "memcached",
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						SecurityContext: &corev1.SecurityContext{
+							RunAsNonRoot:             ptr.To(true),
+							RunAsUser:                ptr.To(int64(1001)),
+							AllowPrivilegeEscalation: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{
+									"ALL",
+								},
+							},
+						},
+						Ports: []corev1.ContainerPort{{
+							ContainerPort: 11211,
+							Name:          "memcached",
+						}},
+						Command: []string{"memcached", "--memory-limit=64", "-o", "modern", "-v"},
+					}},
+				},
+			},
+		},
+	}
 
 	// set the ower reference for the deployment to be the memcached cr, this will help with garbage collection and also with watching the deployment for changes
 	if err := ctrl.SetControllerReference(memchached, dep, r.Scheme); err != nil {
@@ -265,9 +265,9 @@ func (r *MemcachedReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// watch the memcached cr for changes and reconcile when it is created, updated or deleted
 		For(&cachev1alpha1.Memcached{}).
 		Named("memcached").
-		// whatch the deployment managed by the memcached controller. 
-		// if something changes owned by the memcached controler, it will trigger 
-		// reconiliation 
+		// whatch the deployment managed by the memcached controller.
+		// if something changes owned by the memcached controler, it will trigger
+		// reconiliation
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
 }
