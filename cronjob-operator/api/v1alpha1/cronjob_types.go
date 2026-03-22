@@ -70,8 +70,26 @@ type CronJobSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	FailedJobsHistoryLimit *int32 `json:"failedJobsHistoryLimit,omitempty"`
 
-
 }
+
+// describes how the job will be handled
+// One one fo the options can be set
+// defaults to AllowConcurrent
+// +kubebuilder:validation:Enum=Allow;Forbid;Replace
+type ConcurrencyPolicy string
+
+const (
+	// AllowConcurrent allows CronJobs to run concurrently
+	AllowConcurrent ConcurrencyPolicy = "Allow"
+
+	// ForbidConcurrent prevents concurrent runs, 
+	// skipping next run if previous didnt finish
+	ForbidConcurrent ConcurrencyPolicy = "Forbid"
+
+	// ReplaceConcurrent cancels currently running job and replaces with a new one
+	ReplaceConcurrent ConcurrencyPolicy = "Replace"
+)
+
 
 // CronJobStatus defines the observed state of CronJob.
 type CronJobStatus struct {
