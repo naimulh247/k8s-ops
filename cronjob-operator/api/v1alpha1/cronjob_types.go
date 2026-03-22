@@ -30,9 +30,20 @@ type CronJobSpec struct {
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
 
-	// foo is an example field of CronJob. Edit cronjob_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// schedule in cron format (ex, "0 0 * * *")
+	// +kubebuilder:validation:MinLength=0
+	// +required
+	Schedule string `json:"schedule"`
+
+	// concurrencyPolicy - specifies how to treat concurrent executions of a Job
+	// Valid optoins are:
+	// - "Allow" (default): allows CronJobs to run concurrently
+	// - "Forbid": forbids concurrent runs, skipping next run if previous run didnt finish yet
+	// - "Replace": cancels currrently running job and replaces with new one
+	//  +optional
+	// +kubebuilder:default:=Allow
+	ConcurrencyPolicy ConcurrencyPolicy `json:"concurrency_policy,omitempty"`
+
 }
 
 // CronJobStatus defines the observed state of CronJob.
