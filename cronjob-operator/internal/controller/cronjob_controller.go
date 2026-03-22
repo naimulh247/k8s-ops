@@ -42,6 +42,16 @@ import (
 type CronJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// clock allows use to fake timing
+	Clock 
+}
+
+type realClock struct{}
+func (_ realClock) Now() time.Time { return time.Now() }
+
+// Clock knows how to get the current time
+type Clock interface {
+	Now() time.Time
 }
 
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
