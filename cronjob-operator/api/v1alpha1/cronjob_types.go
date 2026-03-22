@@ -35,6 +35,12 @@ type CronJobSpec struct {
 	// +required
 	Schedule string `json:"schedule"`
 
+	// deine in seconds for starting the job if it misses its scheduled time
+	// missed job will count as failed job
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	StartingDeadlineSeconds *int64 `json:"startingDeadlineSeconds,omitempty"`
+
 	// concurrencyPolicy - specifies how to treat concurrent executions of a Job
 	// Valid optoins are:
 	// - "Allow" (default): allows CronJobs to run concurrently
@@ -42,7 +48,12 @@ type CronJobSpec struct {
 	// - "Replace": cancels currrently running job and replaces with new one
 	//  +optional
 	// +kubebuilder:default:=Allow
-	ConcurrencyPolicy ConcurrencyPolicy `json:"concurrency_policy,omitempty"`
+	ConcurrencyPolicy ConcurrencyPolicy `json:"concurrencyPolicy,omitempty"`
+
+	// suspends tells the controller to suspend the next scheduled run, 
+	// it doesnt apply to already running jobs, but prevents new ones from being created
+	// +optional
+	Suspend *bool `json:"suspend,omitempty"`
 
 }
 
