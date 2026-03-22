@@ -8,4 +8,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: cronjob-operator
 repo: nai-k8s-ops.com/cronjob
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: nai-k8s-ops.com
+  group: batch
+  kind: CronJob
+  path: nai-k8s-ops.com/cronjob/api/v1alpha1
+  version: v1alpha1
 version: "3"
