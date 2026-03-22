@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -54,6 +55,21 @@ type CronJobSpec struct {
 	// it doesnt apply to already running jobs, but prevents new ones from being created
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
+
+	// define the job that will be created when executing the cronjob
+	JobTemplate batchv1.JobTemplateSpec `json:"jobTemplate"`
+
+	// defines the number of successful finished jobs to be retained
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	SuccessfulJobsHistoryLimit *int32 `json:"successfulJobsHistoryLimit,omitempty"`
+
+	// defines the number of failed finished jobs to be retained
+	// using a pointer to distinguish between explicit zero and not specified
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	FailedJobsHistoryLimit *int32 `json:"failedJobsHistoryLimit,omitempty"`
+
 
 }
 
