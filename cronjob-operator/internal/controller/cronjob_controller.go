@@ -66,6 +66,13 @@ const (
 	typeDegreadedCronJob = "Degraded"
 )
 
+// scheduledTimeAnnotation is the annotation key used to stamp the scheduled 
+// time onto each Job we create. This allows us to recover lastScheduledTime 
+// by reading the Job directly, rather than relying on our own status fied
+var (
+	scheduledTimeAnnotation = "batch.nai-k8s-ops.com/cronjob/scheduled-at"
+)
+
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs/finalizers,verbs=update
