@@ -54,6 +54,18 @@ type Clock interface {
 	Now() time.Time
 }
 
+// CronJob status definitions
+const (
+	// typeAvailable - the status of the CronJob reconciliation
+	typeAvailable = "Available"
+	
+	// typeProgressingCronJob - the statuse used when CronJob is being reconciled
+	typeProgressingCronJob = "Progressing"
+
+	// typeDegradedCronJob - the status used when the CronJob encountered a error
+	typeDegreadedCronJob = "Degraded"
+)
+
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs/finalizers,verbs=update
