@@ -28,3 +28,7 @@ go.work
 
 # Kubeconfig might contain secrets
 *.kubeconfig
+
+
+# MacOS metadata files
+.DS_Store

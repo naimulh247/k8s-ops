@@ -88,7 +88,19 @@ var (
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	logger := logf.FromContext(ctx)
+	
+	// fetch the CronJob instance; this will get populated with the data from the cluster
+	var cronJob batchv1alpha1.CronJob
+	if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
+		if apierrors.IsNotFound(err) {
+			// if the cr is not found, it might have been deleted or not created
+			// so we will not requeue and return nil
+			logger.Info("CronJob resource not found. Ignoring since object must be deleted or not created yet.")
+			return ctrl.Result{}, nil
+		}
+	}
+
 
 	// TODO(user): your logic here
 
