@@ -591,6 +591,12 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CronJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+
+	// setup the real clock
+	if r.Clock == nil {
+		r.Clock = realClock{}
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1alpha1.CronJob{}).
 		Named("cronjob").
