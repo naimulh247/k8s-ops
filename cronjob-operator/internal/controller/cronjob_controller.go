@@ -72,6 +72,9 @@ const (
 // by reading the Job directly, rather than relying on our own status fied
 var (
 	scheduledTimeAnnotation = "batch.nai-k8s-ops.com/cronjob/scheduled-at"
+	// this is the index key we use to get jobs related / created by this controller
+	// we extract the owner name if the job has a cronjob owner
+	jobOwnerKey = ".metadata.controller" 
 )
 
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
