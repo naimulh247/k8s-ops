@@ -74,7 +74,10 @@ var (
 	scheduledTimeAnnotation = "batch.nai-k8s-ops.com/cronjob/scheduled-at"
 	// this is the index key we use to get jobs related / created by this controller
 	// we extract the owner name if the job has a cronjob owner
-	jobOwnerKey = ".metadata.controller" 
+	jobOwnerKey = ".metadata.controller"
+
+	// we use this to make sure that the jobs are unique to our api + version + kind
+	apiGVStr = batchv1alpha1.GroupVersion.String()
 )
 
 // +kubebuilder:rbac:groups=batch.nai-k8s-ops.com,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
@@ -467,15 +470,15 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if tooLate {
 		log.V(1).Info("missed starting deadline for last run, sleeping till next")
 		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
-			log.Error(fetchErr,  "failed to re-fetch cronjob")
+			log.Error(fetchErr, "failed to re-fetch cronjob")
 			return ctrl.Result{}, fetchErr
 		}
 
 		// update the status condition to say missed deadling
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeDegreadedCronJob,
-			Status: metav1.ConditionTrue,
-			Reason: "MissedSchedule",
+			Type:    typeDegreadedCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "MissedSchedule",
 			Message: fmt.Sprintf("Missed starting deadling for run at %v", missedRun),
 		})
 
@@ -486,11 +489,11 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return scheduledResult, nil
 	}
 
-	// figure out how to run the job. wait for existing one to finish, 
+	// figure out how to run the job. wait for existing one to finish,
 	// replace the existing one or add new ones.
 
 	// concurrency policy might forbid us from running multiple at the same time
-	if cronJob.Spec.ConcurrencyPolicy == batchv1alpha1.ForbidConcurrent && len(activeJobs) > 0  {
+	if cronJob.Spec.ConcurrencyPolicy == batchv1alpha1.ForbidConcurrent && len(activeJobs) > 0 {
 		log.V(1).Info("concurrency policy blocks concurrent runs, skipping", "num active jobs", len(activeJobs))
 		return scheduledResult, nil
 	}
@@ -506,7 +509,6 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-
 	// create the desired job
 
 	// we need a helper to contruct the job based on the cronjobs template.
@@ -518,10 +520,10 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		job := &kbatch.Job{
 			ObjectMeta: metav1.ObjectMeta{
-				Labels: make(map[string]string),
+				Labels:      make(map[string]string),
 				Annotations: make(map[string]string),
-				Name: name,
-				Namespace: cronJob.Namespace,
+				Name:        name,
+				Namespace:   cronJob.Namespace,
 			},
 			// create a deep copy so the object is fully independent and doesnt share the same mem values
 			Spec: *cronJob.Spec.JobTemplate.Spec.DeepCopy(),
@@ -547,7 +549,7 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// create on cluster
-	if err := r.Create(ctx, job); err !=nil {
+	if err := r.Create(ctx, job); err != nil {
 		log.Error(err, "unable to create job for CronJob in cluster", "job", job)
 		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
 			log.Error(fetchErr, "Failed to refetch cronjob")
@@ -556,9 +558,9 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		// update the conditoins
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeDegreadedCronJob,
-			Status: metav1.ConditionTrue,
-			Reason: "JobCreationFailed",
+			Type:    typeDegreadedCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "JobCreationFailed",
 			Message: fmt.Sprintf("Failed to create job: %v", err),
 		})
 		if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
@@ -576,9 +578,9 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// update the conditions for job creation
 	meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-		Type: typeProgressingCronJob,
-		Status: metav1.ConditionTrue,
-		Reason: "JobCreated",
+		Type:    typeProgressingCronJob,
+		Status:  metav1.ConditionTrue,
+		Reason:  "JobCreated",
 		Message: fmt.Sprintf("Created job %s", job.Name),
 	})
 	if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
@@ -597,8 +599,39 @@ func (r *CronJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.Clock = realClock{}
 	}
 
+	// we need to build an look up table so when we do r.list we can find Jobs immediatley
+	// insted of looping over everything
+	if err := mgr.GetFieldIndexer().
+		IndexField(
+			context.Background(),
+			&kbatch.Job{}, // what to index -> build index over all the Job objects
+			jobOwnerKey,   // -> name of the index (".metadata.controller")
+
+			//   extractor function: for each job what values to index under it
+			func(rawObj client.Object) []string {
+				// get the job object and get the owner
+				job := rawObj.(*kbatch.Job)
+				owner := metav1.GetControllerOf(job) // check if a controller owns it
+				if owner == nil {
+					return nil
+				}
+
+				// check if the cornjob ownes it
+				// we check the apigroup version to make sure its not false positive
+				// when filter by kind
+				if owner.APIVersion != apiGVStr || owner.Kind != "CronJob" {
+					return nil
+				}
+
+				// if everything matchs return the ownername
+				return []string{owner.Name}
+			}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1alpha1.CronJob{}).
+		Owns(&kbatch.Job{}). // when a job changes, look at tis owner (CronJob) and trigger reconcile
 		Named("cronjob").
 		Complete(r)
 }
