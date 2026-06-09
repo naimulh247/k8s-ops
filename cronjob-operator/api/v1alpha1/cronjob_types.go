@@ -52,7 +52,7 @@ type CronJobSpec struct {
 	// +kubebuilder:default:=Allow
 	ConcurrencyPolicy ConcurrencyPolicy `json:"concurrencyPolicy,omitempty"`
 
-	// suspends tells the controller to suspend the next scheduled run, 
+	// suspends tells the controller to suspend the next scheduled run,
 	// it doesnt apply to already running jobs, but prevents new ones from being created
 	// +optional
 	Suspend *bool `json:"suspend,omitempty"`
@@ -70,7 +70,6 @@ type CronJobSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	FailedJobsHistoryLimit *int32 `json:"failedJobsHistoryLimit,omitempty"`
-
 }
 
 // describes how the job will be handled
@@ -83,14 +82,13 @@ const (
 	// AllowConcurrent allows CronJobs to run concurrently
 	AllowConcurrent ConcurrencyPolicy = "Allow"
 
-	// ForbidConcurrent prevents concurrent runs, 
+	// ForbidConcurrent prevents concurrent runs,
 	// skipping next run if previous didnt finish
 	ForbidConcurrent ConcurrencyPolicy = "Forbid"
 
 	// ReplaceConcurrent cancels currently running job and replaces with a new one
 	ReplaceConcurrent ConcurrencyPolicy = "Replace"
 )
-
 
 // CronJobStatus defines the observed state of CronJob.
 type CronJobStatus struct {
@@ -104,7 +102,7 @@ type CronJobStatus struct {
 	// +kubebuilder:validation:MaxItems=10
 	Active []corev1.ObjectReference `json:"active,omitempty"`
 
-	// lastScheduleTime hold when was the last time the job was 
+	// lastScheduleTime hold when was the last time the job was
 	// succesfully scheduled
 	// +optional
 	LastScheduleTime *metav1.Time `json:"lastScheduleTime,omitempty"`
