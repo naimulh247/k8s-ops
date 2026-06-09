@@ -178,7 +178,7 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return false, ""
 	}
 	// helper to extraact the scheduled time from the job annotation
-	getScheduledTimeForJob := func(job *kbatch.Job) (*time.Time, err) {
+	getScheduledTimeForJob := func(job *kbatch.Job) (*time.Time, error) {
 		timeRaw := job.Annotations[scheduledTimeAnnotation]
 		if len(timeRaw) == 0 {
 			return nil, nil
@@ -358,7 +358,6 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 				log.Error(err, "unable to delete old successful job", "job", job)
-
 			} else {
 				log.V(1).Info("deleted old succesful job", "job", job)
 			}
@@ -441,9 +440,67 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// save the next run to not recalculate later
 	scheduledResult := ctrl.Result{RequeueAfter: nextRun.Sub(r.Now())}
 
-	// add a next run value to logger for the following section so we 
+	// add a next run value to logger for the following section so we
 	// dont have to add it to log manually
 	log = log.WithValues("now", r.Now(), "next run", nextRun)
+
+	// 6 - run a new job its on schedule, not past the deadline,
+	// and not blocekd by concurrencly policy
+
+	// if we missed a run but within the deadline to start, run the the job
+	if missedRun.IsZero() {
+		log.V(1).Info("no upcoming scheduled times, sleeping until next")
+		return scheduledResult, nil
+	}
+
+	// make sure we are not late to start the run
+	log = log.WithValues("current run", missedRun)
+	tooLate := false
+	if cronJob.Spec.StartingDeadlineSeconds != nil {
+		// check if the missed run + the grace period is past the current time
+		tooLate = missedRun.Add(time.Duration(*cronJob.Spec.StartingDeadlineSeconds) * time.Second).Before(r.Now())
+	}
+	if tooLate {
+		log.V(1).Info("missed starting deadline for last run, sleeping till next")
+		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
+			log.Error(fetchErr,  "failed to re-fetch cronjob")
+			return ctrl.Result{}, fetchErr
+		}
+
+		// update the status condition to say missed deadling
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeDegreadedCronJob,
+			Status: metav1.ConditionTrue,
+			Reason: "MissedSchedule",
+			Message: fmt.Sprintf("Missed starting deadling for run at %v", missedRun),
+		})
+
+		if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
+			log.Error(statusErr, "failed to update CronJob status")
+		}
+
+		return scheduledResult, nil
+	}
+
+	// figure out how to run the job. wait for existing one to finish, 
+	// replace the existing one or add new ones.
+
+	// concurrency policy might forbid us from running multiple at the same time
+	if cronJob.Spec.ConcurrencyPolicy == batchv1alpha1.ForbidConcurrent && len(activeJobs) > 0  {
+		log.V(1).Info("concurrency policy blocks concurrent runs, skipping", "num active jobs", len(activeJobs))
+		return scheduledResult, nil
+	}
+
+	// or replace the existing ones
+	if cronJob.Spec.ConcurrencyPolicy == batchv1alpha1.ReplaceConcurrent {
+		for _, activeJob := range activeJobs {
+			// dont care if the job was already deleted
+			if err := r.Delete(ctx, activeJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
+				log.Error(err, "unable to delete active job", "job", activeJob)
+				return ctrl.Result{}, err
+			}
+		}
+	}
 
 	return ctrl.Result{}, nil
 }
