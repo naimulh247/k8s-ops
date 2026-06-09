@@ -581,8 +581,9 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
 		log.Error(err, "Failed to update cronjob status")
 	}
-	
-	return ctrl.Result{}, nil
+
+	// requeue once we see the job running and update the status
+	return scheduledResult, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
