@@ -58,7 +58,7 @@ type Clock interface {
 // CronJob status definitions
 const (
 	// typeAvailable - the status of the CronJob reconciliation
-	typeAvailable = "Available"
+	typeAvailableCronJob = "Available"
 
 	// typeProgressingCronJob - the statuse used when CronJob is being reconciled
 	typeProgressingCronJob = "Progressing"
@@ -158,6 +158,150 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	}
 
+	// status should be able to re-constructed from the state; its not a good idea
+	// to read from the status of the root object (cronjob cr). we should reconsturct
+	// it on every run
+
+	// find the active list of jobs
+	var activeJobs []*kbatch.Job
+	var successfulJobs []*kbatch.Job
+	var failedJobs []*kbatch.Job
+	var mostRecenttime *time.Time // find the last run to update the status
+
+	// a job is considered "finished" if it has "Completed" or "Failed"
+	// conditions as true
+	isJobFinished := func(job *kbatch.Job) (bool, kbatch.JobConditionType) {
+		for _, c := range job.Status.Conditions {
+			if (c.Type == kbatch.JobComplete || c.Type == kbatch.JobFailed) && c.Status == corev1.ConditionTrue {
+				return true, c.Type
+			}
+		}
+		return false, ""
+	}
+	// helper to extraact the scheduled time from the job annotation
+	getScheduledTimeForJob := func(job *kbatch.Job) (*time.Time, err) {
+		timeRaw := job.Annotations[scheduledTimeAnnotation]
+		if len(timeRaw) == 0 {
+			return nil, nil
+		}
+
+		timeParsed, err := time.Parse(time.RFC3339, timeRaw)
+		if err != nil {
+			return nil, err
+		}
+
+		return &timeParsed, nil
+	}
+
+	// iterate through the jobs and populate it to the arrays
+	for i, job := range childJobs.Items {
+		_, finishedType := isJobFinished(&job)
+
+		switch finishedType {
+		case "": // still running
+			activeJobs = append(activeJobs, &childJobs.Items[i])
+		case kbatch.JobFailed:
+			failedJobs = append(failedJobs, &childJobs.Items[i])
+		case kbatch.JobComplete:
+			successfulJobs = append(successfulJobs, &childJobs.Items[i])
+
+		}
+
+		// store the launch time in the annotation, we will rebuild it
+		// from the active jobs
+		scheduledTimeForJob, err := getScheduledTimeForJob(&job)
+		if err != nil {
+			log.Error(err, "unable to parse schedule time for child job", "job", &job)
+			continue
+		} 
+		if scheduledTimeForJob != nil {
+			if mostRecenttime == nil || mostRecenttime.Before(*scheduledTimeForJob) {
+				mostRecenttime = scheduledTimeForJob
+			}
+		}
+	}
+
+	if mostRecenttime != nil {
+		cronJob.Status.LastScheduleTime = &metav1.Time{Time: *mostRecenttime}
+	} else {
+		cronJob.Status.LastScheduleTime = nil
+	}
+	cronJob.Status.Active = nil
+	for _, activeJob := range activeJobs {
+		// convert the Job onject into a lightweight ObjectReference 
+		// (stores kind, name, namespace, uid, resourceversion)
+		// Job structs fetched from cached so it might have empty fields,
+		// pass schema as fallback
+		jobRef, err := ref.GetReference(r.Scheme, activeJob) 
+		if err != nil {
+			log.Error(err, "unable to maake a refernece to active job", "job", activeJob)
+			continue
+		}
+		cronJob.Status.Active = append(cronJob.Status.Active, *jobRef)
+	}
+
+	log.V(1).Info("job count", "active jobs", len(activeJobs), "successful jobs", len(successfulJobs), "failed jobs", len(failedJobs) )
+	
+	// check if the CronJob is suspended
+	isSuspended := cronJob.Spec.Suspend != nil && *cronJob.Spec.Suspend
+
+	// update the status conditions based on the current state
+	if isSuspended {
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeAvailableCronJob,
+			Status: metav1.ConditionFalse,
+			Reason: "Suspended",
+			Message: "CronJob is suspended",
+
+		})
+	} else if len(failedJobs) > 0 {
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeDegreadedCronJob,
+			Status: metav1.ConditionTrue,
+			Reason: "JobsFailed",
+			Message: fmt.Sprintf("%d job(s) have failed", len(failedJobs)),
+		})
+
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeAvailableCronJob,
+			Status: metav1.ConditionFalse,
+			Reason: "JobsFailed",
+			Message: fmt.Sprintf("%d job(s) have failed", len(failedJobs)),
+		})
+	} else if len(activeJobs) > 0 {
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeProgressingCronJob,
+			Status: metav1.ConditionTrue,
+			Reason: "JobsActive",
+			Message: fmt.Sprintf("%d job(s) are currently active", len(activeJobs)),
+		})
+
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeAvailableCronJob,
+			Status: metav1.ConditionTrue,
+			Reason: "JobsActive",
+			Message: fmt.Sprintf("%d job(s) are currently active", len(activeJobs)),
+		})
+	} else {
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeProgressingCronJob,
+			Status: metav1.ConditionTrue,
+			Reason: "NoJobsActive",
+			Message: "No jobs are currently active",
+		})
+
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeAvailableCronJob,
+			Status: metav1.ConditionFalse,
+			Reason: "AllJobsCompleted",
+			Message: "All jobs have completed succesfully",
+		})
+	}
+
+	if err := r.Status().Update(ctx, &cronJob); err != nil {
+		log.Error(err, "unable to update cronjob status")
+		return ctrl.Result{}, err
+	}
 
 	// TODO(user): your logic here
 
