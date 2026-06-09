@@ -24,11 +24,11 @@ import (
 	"time"
 
 	"github.com/robfig/cron"
-    kbatch "k8s.io/api/batch/v1"
+	kbatch "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-    apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ref "k8s.io/client-go/tools/reference"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,10 +43,11 @@ type CronJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	// clock allows use to fake timing
-	Clock 
+	Clock
 }
 
 type realClock struct{}
+
 func (_ realClock) Now() time.Time { return time.Now() }
 
 // Clock knows how to get the current time
@@ -58,7 +59,7 @@ type Clock interface {
 const (
 	// typeAvailable - the status of the CronJob reconciliation
 	typeAvailable = "Available"
-	
+
 	// typeProgressingCronJob - the statuse used when CronJob is being reconciled
 	typeProgressingCronJob = "Progressing"
 
@@ -66,8 +67,8 @@ const (
 	typeDegreadedCronJob = "Degraded"
 )
 
-// scheduledTimeAnnotation is the annotation key used to stamp the scheduled 
-// time onto each Job we create. This allows us to recover lastScheduledTime 
+// scheduledTimeAnnotation is the annotation key used to stamp the scheduled
+// time onto each Job we create. This allows us to recover lastScheduledTime
 // by reading the Job directly, rather than relying on our own status fied
 var (
 	scheduledTimeAnnotation = "batch.nai-k8s-ops.com/cronjob/scheduled-at"
@@ -88,17 +89,73 @@ var (
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := logf.FromContext(ctx)
-	
+	log := logf.FromContext(ctx)
+
 	// fetch the CronJob instance; this will get populated with the data from the cluster
 	var cronJob batchv1alpha1.CronJob
 	if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
 		if apierrors.IsNotFound(err) {
 			// if the cr is not found, it might have been deleted or not created
 			// so we will not requeue and return nil
-			logger.Info("CronJob resource not found. Ignoring since object must be deleted or not created yet.")
+			log.Info("CronJob resource not found. Ignoring since object must be deleted or not created yet.")
 			return ctrl.Result{}, nil
 		}
+
+		// error reading the object - requeue the request
+		log.Error(err, "Failed to get CronJob")
+		return ctrl.Result{}, err
+	}
+
+	// intialize the status confitions if not yet present
+	if len(cronJob.Status.Conditions) == 0 {
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type:    typeProgressingCronJob,
+			Status:  metav1.ConditionUnknown,
+			Reason:  "Reconciling",
+			Message: "Starting Reconciliation",
+		})
+
+		if err := r.Status().Update(ctx, &cronJob); err != nil {
+			log.Error(err, "Failed to update CronJob status")
+			return ctrl.Result{}, err
+		}
+
+		// kubernetes uses optimistic concurrency - any updates (including the status updates)
+		// changes the resource version. if we continue to reconcile, following updates may conflict
+		//  to keep reconciliation logic in sycn with the actual cluster state, refetch the latest data
+		if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
+			log.Error(err, "Failed to re-fetch CronJob")
+			return ctrl.Result{}, err
+		}
+
+	}
+
+	// 2: list all active jobs, and update the status
+	// to update our status, we need to get all child jobs in the current namespace that belong to cronjob
+	var childJobs kbatch.JobList
+	// we use the List menthod to get the list of all child jobs
+	// jobOwnerKey is an index for the controller to be able to find the owned jobs faster
+	if err := r.List(ctx, &childJobs, client.InNamespace(req.Namespace), client.MatchingFields{jobOwnerKey: req.Name}); err != nil {
+		log.Error(err, "unable to list child Jobs")
+
+		// before updating the check we have the latest state
+		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
+			log.Error(fetchErr, "failed to re-fetch cronjob")
+			return ctrl.Result{}, fetchErr
+		}
+		// update the state condition for err
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type:    typeDegreadedCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "ReconciliationError",
+			Message: fmt.Sprintf("Failed to list child jobs: %v", err),
+		})
+
+		if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
+			log.Error(statusErr, "Failed to updated cronjob status")
+		}
+		return ctrl.Result{}, err
+
 	}
 
 
