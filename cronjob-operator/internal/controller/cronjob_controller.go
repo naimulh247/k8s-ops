@@ -213,7 +213,7 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if err != nil {
 			log.Error(err, "unable to parse schedule time for child job", "job", &job)
 			continue
-		} 
+		}
 		if scheduledTimeForJob != nil {
 			if mostRecenttime == nil || mostRecenttime.Before(*scheduledTimeForJob) {
 				mostRecenttime = scheduledTimeForJob
@@ -228,11 +228,11 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	cronJob.Status.Active = nil
 	for _, activeJob := range activeJobs {
-		// convert the Job onject into a lightweight ObjectReference 
+		// convert the Job onject into a lightweight ObjectReference
 		// (stores kind, name, namespace, uid, resourceversion)
 		// Job structs fetched from cached so it might have empty fields,
 		// pass schema as fallback
-		jobRef, err := ref.GetReference(r.Scheme, activeJob) 
+		jobRef, err := ref.GetReference(r.Scheme, activeJob)
 		if err != nil {
 			log.Error(err, "unable to maake a refernece to active job", "job", activeJob)
 			continue
@@ -240,60 +240,59 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		cronJob.Status.Active = append(cronJob.Status.Active, *jobRef)
 	}
 
-	log.V(1).Info("job count", "active jobs", len(activeJobs), "successful jobs", len(successfulJobs), "failed jobs", len(failedJobs) )
-	
+	log.V(1).Info("job count", "active jobs", len(activeJobs), "successful jobs", len(successfulJobs), "failed jobs", len(failedJobs))
+
 	// check if the CronJob is suspended
 	isSuspended := cronJob.Spec.Suspend != nil && *cronJob.Spec.Suspend
 
 	// update the status conditions based on the current state
 	if isSuspended {
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeAvailableCronJob,
-			Status: metav1.ConditionFalse,
-			Reason: "Suspended",
+			Type:    typeAvailableCronJob,
+			Status:  metav1.ConditionFalse,
+			Reason:  "Suspended",
 			Message: "CronJob is suspended",
-
 		})
 	} else if len(failedJobs) > 0 {
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeDegreadedCronJob,
-			Status: metav1.ConditionTrue,
-			Reason: "JobsFailed",
+			Type:    typeDegreadedCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "JobsFailed",
 			Message: fmt.Sprintf("%d job(s) have failed", len(failedJobs)),
 		})
 
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeAvailableCronJob,
-			Status: metav1.ConditionFalse,
-			Reason: "JobsFailed",
+			Type:    typeAvailableCronJob,
+			Status:  metav1.ConditionFalse,
+			Reason:  "JobsFailed",
 			Message: fmt.Sprintf("%d job(s) have failed", len(failedJobs)),
 		})
 	} else if len(activeJobs) > 0 {
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeProgressingCronJob,
-			Status: metav1.ConditionTrue,
-			Reason: "JobsActive",
+			Type:    typeProgressingCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "JobsActive",
 			Message: fmt.Sprintf("%d job(s) are currently active", len(activeJobs)),
 		})
 
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeAvailableCronJob,
-			Status: metav1.ConditionTrue,
-			Reason: "JobsActive",
+			Type:    typeAvailableCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "JobsActive",
 			Message: fmt.Sprintf("%d job(s) are currently active", len(activeJobs)),
 		})
 	} else {
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeProgressingCronJob,
-			Status: metav1.ConditionTrue,
-			Reason: "NoJobsActive",
+			Type:    typeProgressingCronJob,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NoJobsActive",
 			Message: "No jobs are currently active",
 		})
 
 		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
-			Type: typeAvailableCronJob,
-			Status: metav1.ConditionFalse,
-			Reason: "AllJobsCompleted",
+			Type:    typeAvailableCronJob,
+			Status:  metav1.ConditionFalse,
+			Reason:  "AllJobsCompleted",
 			Message: "All jobs have completed succesfully",
 		})
 	}
@@ -304,10 +303,10 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// 3 - clean up old jobs based on the history limit
-	// deleting is 'best effort' -> if it fails on one, 
+	// deleting is 'best effort' -> if it fails on one,
 	// we dont requeue to finish delete
 	if cronJob.Spec.FailedJobsHistoryLimit != nil {
-		// sort the jobs in place, it goes oldest to newest 
+		// sort the jobs in place, it goes oldest to newest
 		slices.SortStableFunc(failedJobs, func(a, b *kbatch.Job) int {
 			aStartTime := a.Status.StartTime
 			bStartTime := b.Status.StartTime
@@ -325,7 +324,7 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		for i, job := range failedJobs {
 			// check if we need to delete the older jobs based on the limit (sorted old to latest)
-			if i >= len(failedJobs) - int(*cronJob.Spec.FailedJobsHistoryLimit) {
+			if i >= len(failedJobs)-int(*cronJob.Spec.FailedJobsHistoryLimit) {
 				break
 			}
 			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
@@ -333,17 +332,17 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			} else {
 				log.V(1).Info("deleted old failed job", "job", job)
 			}
- 		}
+		}
 	}
 
 	if cronJob.Spec.SuccessfulJobsHistoryLimit != nil {
-		// sort the succesful job arry in oldest to latest 
-		slices.SortStableFunc(successfulJobs, func (a, b *kbatch.Job) int {
+		// sort the succesful job arry in oldest to latest
+		slices.SortStableFunc(successfulJobs, func(a, b *kbatch.Job) int {
 			aStartTime := a.Status.StartTime
 			bStartTime := b.Status.StartTime
 
 			if aStartTime == nil && bStartTime != nil {
-				return 1 
+				return 1
 			}
 
 			if aStartTime.Before(bStartTime) {
@@ -355,7 +354,7 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		})
 
 		for i, job := range successfulJobs {
-			if i >= len(successfulJobs) - int(*cronJob.Spec.SuccessfulJobsHistoryLimit) {
+			if i >= len(successfulJobs)-int(*cronJob.Spec.SuccessfulJobsHistoryLimit) {
 				break
 			}
 			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
@@ -367,7 +366,6 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-
 	// 4 - check if suspended
 	// dont run any jobs / stop for now
 	if cronJob.Spec.Suspend != nil && *cronJob.Spec.Suspend {
@@ -375,8 +373,50 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	// 5 - get the next scheduled run
+
+	getNextSchedule := func(cronJob *batchv1alpha1.CronJob, now time.Time) (lastMissed time.Time, next time.Time, err error) {
+		sched, err := cron.ParseStandard(cronJob.Spec.Schedule)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("unparsable scheduled %q: %w", cronJob.Spec.Schedule, err)
+		}
+		// start from the last observed run tme
+		var earliestTime time.Time
+		if cronJob.Status.LastScheduleTime != nil { // when we last successfuly ran
+			earliestTime = cronJob.Status.LastScheduleTime.Time
+		} else {
+			earliestTime = cronJob.CreationTimestamp.Time // or look at creation time if we never ran successfully
+		}
+
+		// we only care about the missed runs in the last StartingDealineSeconds
+		if cronJob.Spec.StartingDeadlineSeconds != nil {
+			scheduleDeadline := now.Add(-time.Second * time.Duration(*cronJob.Spec.StartingDeadlineSeconds))
+
+			if scheduleDeadline.After(earliestTime) {
+				earliestTime = scheduleDeadline
+			}
+		}
+		if earliestTime.After(now) {
+			return time.Time{}, sched.Next(now), nil
+		}
+
+		// check for missed runs between the earlies time and now at the interval of sched
+		starts := 0
+		for t := sched.Next(earliestTime); !t.After(now); t = sched.Next(t) {
+			lastMissed = t
+
+			starts++
+
+			if starts > 100 {
+				// cant get the most recont times
+				return time.Time{}, time.Time{}, fmt.Errorf("Too many missed start time (> 100). Set or decrease .spec.startingDeadlineSeconds or check clock skew")
+			}
+		}
+		return lastMissed, sched.Next(now), nil
+	}
 
 	
+
 	// TODO(user): your logic here
 
 	return ctrl.Result{}, nil
