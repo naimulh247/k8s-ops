@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"time"
 
@@ -415,9 +414,36 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return lastMissed, sched.Next(now), nil
 	}
 
-	
+	// figure out the next times that we need to create
+	// jobs or anything we msised
+	missedRun, nextRun, err := getNextSchedule(&cronJob, r.Now())
+	if err != nil {
+		log.Error(err, "unable to figure out CronJob schedule")
+		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
+			log.Error(fetchErr, "failed to re-fetch cronjob")
+			return ctrl.Result{}, fetchErr
+		}
+		// update the status condition to reflect the schedule error
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type:    typeDegreadedCronJob,
+			Status:  metav1.ConditionFalse,
+			Reason:  "InvalidSchedule",
+			Message: fmt.Sprintf("Failed to parse schedule: %v", err),
+		})
 
-	// TODO(user): your logic here
+		if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
+			log.Error(statusErr, "Failed to update cronJob")
+		}
+		// we dont reque until we get an update that fixes the schdeule
+		return ctrl.Result{}, nil
+	}
+
+	// save the next run to not recalculate later
+	scheduledResult := ctrl.Result{RequeueAfter: nextRun.Sub(r.Now())}
+
+	// add a next run value to logger for the following section so we 
+	// dont have to add it to log manually
+	log = log.WithValues("now", r.Now(), "next run", nextRun)
 
 	return ctrl.Result{}, nil
 }
