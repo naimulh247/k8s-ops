@@ -303,6 +303,70 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	// 3 - clean up old jobs based on the history limit
+	// deleting is 'best effort' -> if it fails on one, 
+	// we dont requeue to finish delete
+	if cronJob.Spec.FailedJobsHistoryLimit != nil {
+		// sort the jobs in place, it goes oldest to newest 
+		slices.SortStableFunc(failedJobs, func(a, b *kbatch.Job) int {
+			aStartTime := a.Status.StartTime
+			bStartTime := b.Status.StartTime
+			if aStartTime == nil && bStartTime != nil {
+				return 1
+			}
+
+			if aStartTime.Before(bStartTime) {
+				return -1
+			} else if bStartTime.Before(aStartTime) {
+				return 1
+			}
+			return 0
+		})
+
+		for i, job := range failedJobs {
+			// check if we need to delete the older jobs based on the limit (sorted old to latest)
+			if i >= len(failedJobs) - int(*cronJob.Spec.FailedJobsHistoryLimit) {
+				break
+			}
+			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
+				log.Error(err, "unabled to delete old failed job", "job", job)
+			} else {
+				log.V(1).Info("deleted old failed job", "job", job)
+			}
+ 		}
+	}
+
+	if cronJob.Spec.SuccessfulJobsHistoryLimit != nil {
+		// sort the succesful job arry in oldest to latest 
+		slices.SortStableFunc(successfulJobs, func (a, b *kbatch.Job) int {
+			aStartTime := a.Status.StartTime
+			bStartTime := b.Status.StartTime
+
+			if aStartTime == nil && bStartTime != nil {
+				return 1 
+			}
+
+			if aStartTime.Before(bStartTime) {
+				return -1
+			} else if bStartTime.Before(aStartTime) {
+				return 1
+			}
+			return 0
+		})
+
+		for i, job := range successfulJobs {
+			if i >= len(successfulJobs) - int(*cronJob.Spec.SuccessfulJobsHistoryLimit) {
+				break
+			}
+			if err := r.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+				log.Error(err, "unable to delete old successful job", "job", job)
+
+			} else {
+				log.V(1).Info("deleted old succesful job", "job", job)
+			}
+		}
+	}
+
 	// TODO(user): your logic here
 
 	return ctrl.Result{}, nil
