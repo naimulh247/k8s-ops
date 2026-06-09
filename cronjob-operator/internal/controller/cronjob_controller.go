@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -502,6 +503,85 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+
+	// create the desired job
+
+	// we need a helper to contruct the job based on the cronjobs template.
+	// we coipy over the spec from the teample and copy some object meta.
+	// set the schdeuled time annotation to rebuilt the LastScheduleTime
+	constructJobForCronJob := func(cronJob *batchv1alpha1.CronJob, scheduledTime time.Time) (*kbatch.Job, error) {
+		// job names for a given start time should be deterministic to avoid duplicate jobs
+		name := fmt.Sprintf("%s-%d", cronJob.Name, scheduledTime.Unix())
+
+		job := &kbatch.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: make(map[string]string),
+				Annotations: make(map[string]string),
+				Name: name,
+				Namespace: cronJob.Namespace,
+			},
+			// create a deep copy so the object is fully independent and doesnt share the same mem values
+			Spec: *cronJob.Spec.JobTemplate.Spec.DeepCopy(),
+		}
+
+		maps.Copy(job.Annotations, cronJob.Spec.JobTemplate.Annotations)
+		maps.Copy(job.Labels, cronJob.Spec.JobTemplate.Labels)
+		job.Annotations[scheduledTimeAnnotation] = scheduledTime.Format(time.RFC3339)
+
+		// set the reference of the job to the controller for gc
+		if err := ctrl.SetControllerReference(cronJob, job, r.Scheme); err != nil {
+			return nil, err
+		}
+		return job, nil
+	}
+
+	// actually make the job using the helper function
+	job, err := constructJobForCronJob(&cronJob, missedRun)
+	if err != nil {
+		log.Error(err, "unable to constuct job from template")
+		// dont retry immediatlly wait for next schdeuled run / update to cr
+		return scheduledResult, nil
+	}
+
+	// create on cluster
+	if err := r.Create(ctx, job); err !=nil {
+		log.Error(err, "unable to create job for CronJob in cluster", "job", job)
+		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
+			log.Error(fetchErr, "Failed to refetch cronjob")
+			return ctrl.Result{}, fetchErr
+		}
+
+		// update the conditoins
+		meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+			Type: typeDegreadedCronJob,
+			Status: metav1.ConditionTrue,
+			Reason: "JobCreationFailed",
+			Message: fmt.Sprintf("Failed to create job: %v", err),
+		})
+		if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
+			log.Error(statusErr, "failed to update cronjob status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	log.V(1).Info("created Job for Cronjob run", "job", job)
+
+	if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
+		log.Error(fetchErr, "failed to re-fetch cronjob")
+		return ctrl.Result{}, fetchErr
+	}
+
+	// update the conditions for job creation
+	meta.SetStatusCondition(&cronJob.Status.Conditions, metav1.Condition{
+		Type: typeProgressingCronJob,
+		Status: metav1.ConditionTrue,
+		Reason: "JobCreated",
+		Message: fmt.Sprintf("Created job %s", job.Name),
+	})
+	if statusErr := r.Status().Update(ctx, &cronJob); statusErr != nil {
+		log.Error(err, "Failed to update cronjob status")
+	}
+	
 	return ctrl.Result{}, nil
 }
 
