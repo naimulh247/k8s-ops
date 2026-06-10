@@ -71,7 +71,7 @@ const (
 // time onto each Job we create. This allows us to recover lastScheduledTime
 // by reading the Job directly, rather than relying on our own status fied
 var (
-	scheduledTimeAnnotation = "batch.nai-k8s-ops.com/cronjob/scheduled-at"
+	scheduledTimeAnnotation = "batch.nai-k8s-ops.com/scheduled-at"
 	// this is the index key we use to get jobs related / created by this controller
 	// we extract the owner name if the job has a cronjob owner
 	jobOwnerKey = ".metadata.controller"
@@ -301,6 +301,11 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Reason:  "AllJobsCompleted",
 			Message: "All jobs have completed succesfully",
 		})
+	}
+
+	if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
+		log.Error(fetchErr, "failed to re-fetch cronjob cr")
+		return ctrl.Result{}, fetchErr
 	}
 
 	if err := r.Status().Update(ctx, &cronJob); err != nil {
