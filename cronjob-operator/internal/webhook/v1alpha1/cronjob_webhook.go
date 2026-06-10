@@ -19,6 +19,11 @@ package v1alpha1
 import (
 	"context"
 
+	"github.com/robfig/cron"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -35,10 +40,10 @@ func SetupCronJobWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &batchv1alpha1.CronJob{}).
 		WithValidator(&CronJobCustomValidator{}).
 		WithDefaulter(&CronJobCustomDefaulter{
-			DefaultConcurrencyPolicy: batchv1alpha1.AllowConcurrent,
-			DefaultSuspend: false,
+			DefaultConcurrencyPolicy:          batchv1alpha1.AllowConcurrent,
+			DefaultSuspend:                    false,
 			DefaultSuccessfulJobsHistoryLimit: 3,
-			DefaultFailedJobsHistoryLimit: 1,
+			DefaultFailedJobsHistoryLimit:     1,
 		}).
 		Complete()
 }
@@ -56,10 +61,10 @@ type CronJobCustomDefaulter struct {
 	// TODO(user): Add more fields as needed for defaulting
 
 	// default values for CronJob fields
-	DefaultConcurrencyPolicy batchv1alpha1.ConcurrencyPolicy
-	DefaultSuspend bool
+	DefaultConcurrencyPolicy          batchv1alpha1.ConcurrencyPolicy
+	DefaultSuspend                    bool
 	DefaultSuccessfulJobsHistoryLimit int32
-	DefaultFailedJobsHistoryLimit int32
+	DefaultFailedJobsHistoryLimit     int32
 }
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind CronJob.
@@ -103,11 +108,42 @@ type CronJobCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
+// for the sake of simplicity validate create and update will behavce the same and do nothring during deletion
+func validateCronJob(cronJob *batchv1alpha1.CronJob) error {
+	var allErrs field.ErrorList
+	if err := validateCronJobName(cronJob); err != nil {
+		allErrs = append(allErrs, err)
+	}
+	if err := validateCronJobSpec(cronJob); err != nil {
+		allErrs = append(allErrs, err)
+	}
+
+	// return all the errors from the validation
+	return apierrors.NewInvalid(
+		schema.GroupKind{Group: "batch.nai-k8s-ops.com", Kind: "CronJob"}, cronJob.Name, allErrs)
+
+}
+
+func validateCronJobSpec(cronJob *batchv1alpha1.CronJob) *field.Error {
+	if _, err := cron.ParseStandard(cronJob.Spec.Schedule); err != nil {
+		return field.Invalid(field.NewPath("spec").Child("schedule"), cronJob.Spec.Schedule, err.Error())
+	}
+	return nil
+}
+
+func validateCronJobName(cronJob *batchv1alpha1.CronJob) *field.Error {
+	// k8s object names needs to fit in 63 chraracter limit, we need to make sure that 
+	// cronjob object name is at max <= 52
+	if len(cronJob.Name) > validation.DNS1123SubdomainMaxLength - 11 {
+		return field.Invalid(field.NewPath("metadata").Child("name"), cronJob.Name, "must be no more thna 52 characters")
+	}
+
+	return nil
+}
+
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type CronJob.
 func (v *CronJobCustomValidator) ValidateCreate(_ context.Context, obj *batchv1alpha1.CronJob) (admission.Warnings, error) {
 	cronjoblog.Info("Validation for CronJob upon creation", "name", obj.GetName())
-
-	// TODO(user): fill in your validation logic upon object creation.
 
 	return nil, nil
 }
