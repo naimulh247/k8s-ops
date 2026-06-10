@@ -555,6 +555,10 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// create on cluster
 	if err := r.Create(ctx, job); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			log.V(1).Info("job already exists, skipping creation", "job", job.Name)
+			return scheduledResult, nil
+		}
 		log.Error(err, "unable to create job for CronJob in cluster", "job", job)
 		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
 			log.Error(fetchErr, "Failed to refetch cronjob")
