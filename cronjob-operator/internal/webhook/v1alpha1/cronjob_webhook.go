@@ -132,9 +132,9 @@ func validateCronJobSpec(cronJob *batchv1alpha1.CronJob) *field.Error {
 }
 
 func validateCronJobName(cronJob *batchv1alpha1.CronJob) *field.Error {
-	// k8s object names needs to fit in 63 chraracter limit, we need to make sure that 
+	// k8s object names needs to fit in 63 chraracter limit, we need to make sure that
 	// cronjob object name is at max <= 52
-	if len(cronJob.Name) > validation.DNS1123SubdomainMaxLength - 11 {
+	if len(cronJob.Name) > validation.DNS1123SubdomainMaxLength-11 {
 		return field.Invalid(field.NewPath("metadata").Child("name"), cronJob.Name, "must be no more thna 52 characters")
 	}
 
@@ -145,7 +145,7 @@ func validateCronJobName(cronJob *batchv1alpha1.CronJob) *field.Error {
 func (v *CronJobCustomValidator) ValidateCreate(_ context.Context, obj *batchv1alpha1.CronJob) (admission.Warnings, error) {
 	cronjoblog.Info("Validation for CronJob upon creation", "name", obj.GetName())
 
-	return nil, nil
+	return nil, validateCronJob(obj)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type CronJob.
@@ -154,7 +154,8 @@ func (v *CronJobCustomValidator) ValidateUpdate(_ context.Context, oldObj, newOb
 
 	// TODO(user): fill in your validation logic upon object update.
 
-	return nil, nil
+	return nil, validateCronJob(newObj)
+
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type CronJob.
