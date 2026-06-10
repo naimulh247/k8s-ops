@@ -145,7 +145,7 @@ func (r *CronJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		log.Error(err, "unable to list child Jobs")
 
 		// before updating the check we have the latest state
-		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
+		if fetchErr := r.Get(ctx, req.NamespacedName, &cronJob); fetchErr != nil {
 			log.Error(fetchErr, "failed to re-fetch cronjob")
 			return ctrl.Result{}, fetchErr
 		}
