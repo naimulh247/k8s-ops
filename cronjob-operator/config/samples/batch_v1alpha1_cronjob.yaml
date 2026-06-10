@@ -18,17 +18,17 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
-            containers:
-              - name: job-container
-                image: busybox
-                args:
-                  - /bin/sh
-                  - -c 
-                  - date; echo Hello from the Kubernetes cluster
-                securityContext:
-                  allowPrivilegeEscalationp: false
-                capabilities:
-                  drop:
-                    - ALL
-                readOnlyRootFilesystem: false
-            restartPolicy: OnFailure
+          containers:
+          - name: job-container
+            image: busybox
+            args:
+            - /bin/sh
+            - -c
+            - date; echo Hello from the Kubernetes cluster
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: false
+          restartPolicy: OnFailure
