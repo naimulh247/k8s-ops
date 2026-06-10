@@ -34,7 +34,12 @@ var cronjoblog = logf.Log.WithName("cronjob-resource")
 func SetupCronJobWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &batchv1alpha1.CronJob{}).
 		WithValidator(&CronJobCustomValidator{}).
-		WithDefaulter(&CronJobCustomDefaulter{}).
+		WithDefaulter(&CronJobCustomDefaulter{
+			DefaultConcurrencyPolicy: batchv1alpha1.AllowConcurrent,
+			DefaultSuspend: false,
+			DefaultSuccessfulJobsHistoryLimit: 3,
+			DefaultFailedJobsHistoryLimit: 1,
+		}).
 		Complete()
 }
 
@@ -49,6 +54,12 @@ func SetupCronJobWebhookWithManager(mgr ctrl.Manager) error {
 // as it is used only for temporary operations and does not need to be deeply copied.
 type CronJobCustomDefaulter struct {
 	// TODO(user): Add more fields as needed for defaulting
+
+	// default values for CronJob fields
+	DefaultConcurrencyPolicy batchv1alpha1.ConcurrencyPolicy
+	DefaultSuspend bool
+	DefaultSuccessfulJobsHistoryLimit int32
+	DefaultFailedJobsHistoryLimit int32
 }
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind CronJob.
@@ -57,7 +68,26 @@ func (d *CronJobCustomDefaulter) Default(_ context.Context, obj *batchv1alpha1.C
 
 	// TODO(user): fill in your defaulting logic.
 
+	// set default valudes
+	d.applyDefaults(obj)
+
 	return nil
+}
+
+// applyDefaults applies default values to CronJob CR fields
+func (d *CronJobCustomDefaulter) applyDefaults(cronJob *batchv1alpha1.CronJob) {
+	if cronJob.Spec.ConcurrencyPolicy == "" {
+		cronJob.Spec.ConcurrencyPolicy = d.DefaultConcurrencyPolicy
+	}
+	if cronJob.Spec.Suspend == nil {
+		cronJob.Spec.Suspend = &d.DefaultSuspend
+	}
+	if cronJob.Spec.SuccessfulJobsHistoryLimit == nil {
+		cronJob.Spec.SuccessfulJobsHistoryLimit = &d.DefaultSuccessfulJobsHistoryLimit
+	}
+	if cronJob.Spec.FailedJobsHistoryLimit == nil {
+		cronJob.Spec.FailedJobsHistoryLimit = &d.DefaultFailedJobsHistoryLimit
+	}
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
